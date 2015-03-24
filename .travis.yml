@@ -1,3 +1,5 @@
 language: rust
-
 sudo: false
+addons:
+  apt_packages:
+  - capnproto
