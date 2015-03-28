@@ -1,5 +1,11 @@
 language: rust
-sudo: false
-addons:
-  apt_packages:
-  - capnproto
+#sudo: false
+#addons:
+#  apt_packages:
+#  - capnproto
+
+# For Ubuntu 12.04 LTS
+before_script:
+  - sudo add-apt-repository ppa:sil2100/ppa -y
+  - sudo apt-get update -q
+  - sudo apt-get install capnproto
