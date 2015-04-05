@@ -1,12 +1,14 @@
 #![feature(core)]
 #![feature(collections)]
 #![feature(hash)]
-#![feature(io)]
 #![feature(fs_time)]
 #![feature(fs_walk)]
+#![feature(libc)]
 #![feature(old_io)]
-#![feature(std_misc)]
-#![feature(int_uint)]
+#![feature(slice_patterns)]
+
+pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+
 pub mod cache;
 pub mod common;
 pub mod compiler;

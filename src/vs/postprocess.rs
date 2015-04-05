@@ -1,5 +1,7 @@
+use std::collections::HashSet;
 use std::io::{Read, Write, Error};
-use std::path::Path;
+use std::iter::FromIterator;
+use std::path::{Path, PathBuf};
 
 use super::super::utils::DEFAULT_BUF_SIZE;
 use super::super::io::binary::*;
@@ -14,11 +16,12 @@ enum Directive {
 	Unknown(Vec<u8>)
 }
 
-pub fn filter_preprocessed(reader: &mut Read, writer: &mut Write, marker: &Option<String>, keep_headers: bool) -> Result<(), Error> {
+pub fn filter_preprocessed(base: &Option<PathBuf>, reader: &mut Read, writer: &mut Write, marker: &Option<String>, keep_headers: bool) -> Result<Vec<PathBuf>, Error> {
 	let mut line_begin = true;
 	// Entry file.
 	let mut entry_file: Option<String> = None;
 	let mut header_found: bool = false;
+	let mut header_files: HashSet<String> = HashSet::new();
 	loop {
 		let c = try! (read_u8(reader));
 		match c {
@@ -40,15 +43,15 @@ pub fn filter_preprocessed(reader: &mut Read, writer: &mut Write, marker: &Optio
 						let file = raw_file.replace("\\", "/");
 						entry_file = match entry_file {
 							Some(path) => {
-								if header_found && (path  == file) {
+								if header_found && (path == file) {
 									try! (writer.write_all(b"#pragma hdrstop\n"));
-									try! (writer.write_all(raw.as_slice()));
+									try! (writer.write_all(&raw));
 									break;
 								}
 								match *marker {
 									Some(ref raw_path) => {
 										let path = raw_path.replace("\\", "/");
-										if file == path || Path::new(file.as_slice()).ends_with(&Path::new(path.as_slice())) {
+										if file == path || Path::new(&file).ends_with(&Path::new(&path)) {
 											header_found = true;
 										}
 									}
@@ -56,19 +59,20 @@ pub fn filter_preprocessed(reader: &mut Read, writer: &mut Write, marker: &Optio
 								}
 								Some(path)
 							}
-							None => Some(file)
+							None => Some(file.clone())
 						};
+						header_files.insert(file);
 						if keep_headers {
-							try! (writer.write_all(raw.as_slice()));
+							try! (writer.write_all(&raw));
 						}
 					}
 					Directive::HdrStop(raw) => {
-						try! (writer.write_all(raw.as_slice()));
+						try! (writer.write_all(&raw));
 						break;
 					}
 					Directive::Unknown(raw) => {
 						if keep_headers {
-							try! (writer.write_all(raw.as_slice()));
+							try! (writer.write_all(&raw));
 						}
 					}
 				}
@@ -88,16 +92,21 @@ pub fn filter_preprocessed(reader: &mut Read, writer: &mut Write, marker: &Optio
 		if size <= 0 {
 			break;
 		}
-		try! (writer.write_all(&buf.as_slice()[0..size]));
+		try! (writer.write_all(&buf[0..size]));
 	}
-	Ok(())
+	Ok(Vec::from_iter(header_files.into_iter().map(|arg:String|->PathBuf {
+		match base {
+			&Some(ref path) => path.join(arg),
+			&None => Path::new(&arg).to_path_buf(),
+		}
+	})))
 }
 
 fn read_directive(first: u8, reader: &mut Read) -> Result<Directive, Error> {
 	let mut raw: Vec<u8> = Vec::new();
 	raw.push(first);
 	let (next, token) = try! (read_token(None, reader, &mut raw));
-	match token.as_slice() {
+	match &token[..] {
 		b"line" => read_directive_line(next, reader, raw),
 		b"pragma" => read_directive_pragma(next, reader, raw),
 		_ => {
@@ -164,13 +173,13 @@ fn read_directive_line(first: Option<u8>, reader: &mut Read, mut raw: Vec<u8>) -
 	// File name
 	let (next2, file) = try! (read_token(next1, reader, &mut raw));
 	try! (skip_line(next2, reader, &mut raw));
-	Ok(Directive::Line(raw, String::from_utf8_lossy(file.as_slice()).to_string()))
+	Ok(Directive::Line(raw, String::from_utf8_lossy(&file).to_string()))
 }
 
 fn read_directive_pragma(first: Option<u8>, reader: &mut Read, mut raw: Vec<u8>) -> Result<Directive, Error> {
 	let (next, token) = try! (read_token(first, reader, &mut raw));
 	try! (skip_line(next, reader, &mut raw));
-	match token.as_slice() {
+	match &token[..] {
 		b"hdrstop" => Ok(Directive::HdrStop(raw)),
 		_ => Ok(Directive::Unknown(raw))
 	}
@@ -226,8 +235,8 @@ mod test {
 		let mut writer: Vec<u8> = Vec::new();
 		let mut stream: Vec<u8> = Vec::new();
 		stream.push_all(original.as_bytes());
-		match super::filter_preprocessed(&mut Cursor::new(stream), &mut writer, &marker, keep_headers) {
-			Ok(_) => {assert_eq! (String::from_utf8_lossy(writer.as_slice()), expected)}
+		match super::filter_preprocessed(&None, &mut Cursor::new(stream), &mut writer, &marker, keep_headers) {
+			Ok(_) => {assert_eq! (String::from_utf8_lossy(&writer), expected)}
 			Err(e) => {panic! (e);}
 		}
 	}

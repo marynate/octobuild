@@ -1,8 +1,8 @@
 [package]
 name = "octobuild"
-version = "0.0.5"
-authors = [ "Artem V. Navrotskiy <bozaro@users.noreply.github.com>" ]
 build = "src/build.rs"
+version = "0.0.10"
+authors = [ "Artem V. Navrotskiy <bozaro@users.noreply.github.com>" ]
 
 [dependencies.daemon]
 version = "*"

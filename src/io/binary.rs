@@ -7,7 +7,7 @@ fn read_byte(stream: &mut Read) -> Result<u8> {
 	let mut buf = [0];
 	let size = try! (stream.read(&mut buf));
 	if size <= 0 {
-		return Err(Error::new(ErrorKind::InvalidInput, "Unexpected end of data", None));
+		return Err(Error::new(ErrorKind::InvalidInput, "Unexpected end of data"));
 	}
 	Ok(buf[0])
 }
@@ -47,7 +47,7 @@ pub fn read_i8(stream: &mut Read) -> Result<i8> {
 ///
 /// The number of bytes returned is system-dependent.
 pub fn read_le_usize(stream: &mut Read) -> Result<usize> {
-    read_le_uint_n(stream, std::usize::BYTES).map(|i| i as usize)
+    read_le_uint_n(stream, std::usize::BYTES as u32).map(|i| i as usize)
 }
 
 /// Reads exactly `len` bytes and gives you back a new vector of length
@@ -60,7 +60,7 @@ pub fn read_le_usize(stream: &mut Read) -> Result<usize> {
 /// have already been consumed from the underlying reader, and they are lost
 /// (not returned as part of the error). If this is unacceptable, then it is
 /// recommended to use the `push_at_least` or `read` methods.
-pub fn read_exact(stream: &mut Read, len: uint) -> Result<Vec<u8>> {
+pub fn read_exact(stream: &mut Read, len: usize) -> Result<Vec<u8>> {
     let mut buf = Vec::with_capacity(len);
     unsafe {
         buf.set_len(len);
@@ -69,7 +69,7 @@ pub fn read_exact(stream: &mut Read, len: uint) -> Result<Vec<u8>> {
     while pos < len {
         let size = try! (stream.read(&mut buf[pos..len]));
         if size <= 0 {
-            return Err(Error::new(ErrorKind::InvalidInput, "Unexpected end of data", None));
+            return Err(Error::new(ErrorKind::InvalidInput, "Unexpected end of data"));
         }
         pos += size;
 
@@ -92,5 +92,5 @@ pub fn write_i8(stream: &mut Write, n: i8) -> Result<()> {
 /// Write a little-endian uint (number of bytes depends on system).
 #[inline]
 pub fn write_le_usize(stream: &mut Write, n: usize) -> Result<()> {
-    extensions::u64_to_le_bytes(n as u64, std::usize::BYTES as usize, |v| stream.write_all(v))
+    extensions::u64_to_le_bytes(n as u64, std::usize::BYTES, |v| stream.write_all(v))
 }

@@ -1,9 +1,36 @@
+use std::fmt::{Display, Formatter};
 use std::io::{Error, ErrorKind};
 use std::path::PathBuf;
 use std::process::{Command, Output};
 
+#[derive(Debug)]
+pub enum CompilerError {
+	InvalidArguments(String),
+}
+				
+impl Display for CompilerError {
+	fn fmt(&self, f: &mut Formatter) -> Result<(), ::std::fmt::Error> {
+		match self {
+			&CompilerError::InvalidArguments(ref arg) => write!(f, "can't parse command line arguments: {}", arg),
+		}
+	}
+}
+
+impl ::std::error::Error for CompilerError {
+	fn description(&self) -> &str {
+		match self {
+			&CompilerError::InvalidArguments(_) => "can't parse command line arguments",
+		}
+	}
+
+	fn cause(&self) -> Option<&::std::error::Error> {
+		None
+	}
+}
+
 // Scope of command line argument.
 #[derive(Copy)]
+#[derive(Clone)]
 #[derive(Debug)]
 #[derive(PartialEq)]
 pub enum Scope {
@@ -18,6 +45,7 @@ pub enum Scope {
 }
 
 #[derive(Copy)]
+#[derive(Clone)]
 #[derive(Debug)]
 #[derive(PartialEq)]
 pub enum InputKind {
@@ -27,6 +55,7 @@ pub enum InputKind {
 }
 
 #[derive(Copy)]
+#[derive(Clone)]
 #[derive(Debug)]
 #[derive(PartialEq)]
 pub enum OutputKind {
@@ -106,14 +135,16 @@ pub struct CompilationTask {
 	pub marker_precompiled: Option<String>,
 }
 
-pub enum PreprocessOutput {
-	Success(PreprocessResult),
+pub enum PreprocessResult {
+	Success(PreprocessedSource),
 	Failed(OutputInfo)
 }
 
-pub struct PreprocessResult {
+pub struct PreprocessedSource {
 	// Hash
 	pub hash: String,
+	// Source file names
+	pub sources: Vec<PathBuf>,
 	// Preprocessed file
 	pub content: Vec<u8>,
 }
@@ -123,21 +154,21 @@ pub trait Compiler {
 	fn create_task(&self, command: CommandInfo, args: &[String]) -> Result<CompilationTask, String>;
 
 	// Preprocessing source file.
-	fn preprocess_step(&self, task: &CompilationTask) -> Result<PreprocessOutput, Error>;
+	fn preprocess_step(&self, task: &CompilationTask) -> Result<PreprocessResult, Error>;
 
 	// Compile preprocessed file.
-	fn compile_step(&self, task: &CompilationTask, preprocessed: PreprocessResult) -> Result<OutputInfo, Error>;
+	fn compile_step(&self, task: &CompilationTask, preprocessed: PreprocessedSource) -> Result<OutputInfo, Error>;
 	
 	// Run preprocess and compile.
 	fn try_compile(&self, command: CommandInfo, args: &[String]) -> Result<OutputInfo, Error> {
 		match self.create_task(command, args) {
 			Ok(task) => {
 				match try! (self.preprocess_step(&task)) {
-					PreprocessOutput::Success(preprocessed) => self.compile_step(&task, preprocessed),
-					PreprocessOutput::Failed(output) => Ok(output),
+					PreprocessResult::Success(preprocessed) => self.compile_step(&task, preprocessed),
+					PreprocessResult::Failed(output) => Ok(output),
 				}
 			}
-			Err(e) => Err(Error::new(ErrorKind::InvalidInput, "Can't parse command line arguments", Some(e)))
+			Err(e) => Err(Error::new(ErrorKind::InvalidInput, CompilerError::InvalidArguments(e)))
 		}
 	}
 

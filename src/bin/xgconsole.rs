@@ -1,7 +1,4 @@
-#![feature(core)]
 #![feature(exit_status)]
-#![feature(io)]
-#![feature(os)]
 extern crate octobuild;
 extern crate tempdir;
 
@@ -9,6 +6,7 @@ use octobuild::common::BuildTask;
 use octobuild::cache::Cache;
 use octobuild::wincmd;
 use octobuild::xg;
+use octobuild::utils;
 use octobuild::graph::{Graph, NodeIndex, Node, EdgeIndex, Edge};
 use octobuild::vs::compiler::VsCompiler;
 use octobuild::compiler::*;
@@ -40,12 +38,12 @@ struct ResultMessage {
 }
 
 fn main() {
-	println!("XGConsole:");
+	println!("XGConsole ({}, {}-{}):", octobuild::VERSION, std::env::consts::ARCH, std::env::consts::OS);
 	let args = Vec::from_iter(env::args());
 	for arg in args.iter() {
 		println!("  {}", arg);
 	}
-	match execute(&args.as_slice()[1..]) {
+	match execute(&args[1..]) {
 		Ok(result) => {
 			env::set_exit_status(match result {
 				Some(r) => r,
@@ -68,7 +66,7 @@ fn execute(args: &[String]) -> Result<Option<i32>, Error> {
 		let (tx_result, rx_result): (Sender<ResultMessage>, Receiver<ResultMessage>) = channel();
 		let (tx_task, rx_task): (Sender<TaskMessage>, Receiver<TaskMessage>) = channel();
 
-		create_threads(rx_task, tx_result, std::os::num_cpus(), |worker_id:usize| {
+		let mutex_rx_task = create_threads(rx_task, tx_result, utils::num_cpus(), |worker_id:usize| {
 			let temp_path = temp_dir.path().to_path_buf();
 			let temp_cache = cache.clone();
 			move |task:TaskMessage| -> ResultMessage {
@@ -80,7 +78,7 @@ fn execute(args: &[String]) -> Result<Option<i32>, Error> {
 		let file = try! (File::open(&path));
 		let graph = try! (xg::parser::parse(BufReader::new(file)));
 		let validated_graph = try! (validate_graph(graph));
-		match try! (execute_graph(&validated_graph, tx_task, rx_result)) {
+		match try! (execute_graph(&validated_graph, tx_task, mutex_rx_task, rx_result)) {
 			Some(v) if v == 0 => {}
 			v => {return Ok(v)}
 		}
@@ -137,12 +135,12 @@ fn validate_graph(graph: Graph<BuildTask, ()>) -> Result<Graph<BuildTask, ()>, E
 		}
 		i = i + 1;
 	}
-	Err(Error::new(ErrorKind::InvalidInput, "Found cycles in build dependencies", None))
+	Err(Error::new(ErrorKind::InvalidInput, "Found cycles in build dependencies"))
 }
 
 fn execute_task(cache: &Cache, temp_dir: &Path, worker: usize, message: TaskMessage) -> ResultMessage {
 	let args = wincmd::expand_args(&message.task.args, &|name:&str|->Option<String>{env::var(name).ok()});
-	let output = execute_compiler(cache, temp_dir, message.task.exec.as_slice(), &Path::new(&message.task.working_dir), args.as_slice());
+	let output = execute_compiler(cache, temp_dir, &message.task.exec, &Path::new(&message.task.working_dir), &args);
 	ResultMessage {
 		index: message.index,
 		task: message.task,
@@ -161,15 +159,18 @@ fn execute_compiler(cache: &Cache, temp_dir: &Path, program: &str, cwd: &Path, a
 		compiler.compile(command, args)
 	} else {
 		command.to_command()
-			.args(args.as_slice())
+			.args(&args)
 			.output()
 			.map(|o| OutputInfo::new(o))
 	}
 }
 
-fn execute_graph(graph: &Graph<BuildTask, ()>, tx_task: Sender<TaskMessage>, rx_result: Receiver<ResultMessage>) -> Result<Option<i32>, Error> {
+fn execute_graph(graph: &Graph<BuildTask, ()>, tx_task: Sender<TaskMessage>, mutex_rx_task: Arc<Mutex<Receiver<TaskMessage>>>, rx_result: Receiver<ResultMessage>) -> Result<Option<i32>, Error> {
 	// Run all tasks.
 	let result = execute_until_failed(graph, tx_task, &rx_result);
+	// Cleanup task queue.
+	for _ in mutex_rx_task.lock().unwrap().iter() {
+	}
 	// Wait for in progress task completion.
 	for _ in rx_result.iter() {
 	}
@@ -197,7 +198,7 @@ fn execute_until_failed(graph: &Graph<BuildTask, ()>, tx_task: Sender<TaskMessag
 			true
 		}
 	}) {
-		return Err(Error::new(ErrorKind::BrokenPipe, "Can't schedule root tasks", None));
+		return Err(Error::new(ErrorKind::BrokenPipe, "Can't schedule root tasks"));
 	}
 
 	let mut count:usize = 0;
@@ -206,8 +207,8 @@ fn execute_until_failed(graph: &Graph<BuildTask, ()>, tx_task: Sender<TaskMessag
 		count += 1;
 		println!("#{} {}/{}: {}", message.worker, count, completed.len(), message.task.title);
 		let result = try! (message.result);
-		try! (io::stdout().write_all(result.stdout.as_slice()));
-		try! (io::stderr().write_all(result.stderr.as_slice()));
+		try! (io::stdout().write_all(&result.stdout));
+		try! (io::stderr().write_all(&result.stderr));
 		if !result.success() {
 			return Ok(result.status);
 		}
@@ -227,7 +228,7 @@ fn execute_until_failed(graph: &Graph<BuildTask, ()>, tx_task: Sender<TaskMessag
 			}
 			true
 		}) {
-			return Err(Error::new(ErrorKind::BrokenPipe, "Can't schedule child task", None));
+			return Err(Error::new(ErrorKind::BrokenPipe, "Can't schedule child task"));
 		};
 		if count == completed.len() {
 			return Ok(Some(0));
