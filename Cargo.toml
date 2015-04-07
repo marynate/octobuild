@@ -20,4 +20,4 @@ version = "*"
 version = "*"
 
 [build-dependencies.capnpc]
-version = "*"
+git = "https://github.com/bozaro/capnpc-rust.git"
