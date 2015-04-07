@@ -11,15 +11,17 @@ install:
 - ps: Start-FileDownload "https://static.rust-lang.org/dist/rust-nightly-$env:target-pc-windows-gnu.exe"
 - ps: Start-FileDownload "https://static.bozaro.ru/x86_64-4.9.2-release-win32-seh-rt_v4-rev2.7z" mingw64.7z
 - ps: Start-FileDownload "https://static.bozaro.ru/WixSharp.1.0.10.0.7z" WixSharp.7z
+- ps: Start-FileDownload "https://github.com/bozaro/capnproto/releases/download/v0.5.1.2-pr190/capnproto-0.5.1.2-pr190.7z" capnproto.7z
 - rust-nightly-%TARGET%-pc-windows-gnu.exe   /VERYSILENT /NORESTART /DIR="%APPVEYOR_BUILD_FOLDER%\rust-%TARGET%"
-- 7z.exe x WixSharp.7z -oWixSharp > nul
 - 7z.exe x mingw64.7z > nul
+- 7z.exe x WixSharp.7z -oWixSharp > nul
+- 7z.exe x capnproto.7z -ocapnproto > nul
 - SET WIXSHARP_DIR=%APPVEYOR_BUILD_FOLDER%\WixSharp\
 - SET MINGW_DIR=%APPVEYOR_BUILD_FOLDER%\mingw64\
 - git submodule update --init --recursive
 
 test_script:
-- SET PATH=%PATH%;%APPVEYOR_BUILD_FOLDER%\rust-%TARGET%\bin;%MINGW_DIR%\bin;%WIXSHARP_DIR%
+- SET PATH=%PATH%;%APPVEYOR_BUILD_FOLDER%\rust-%TARGET%\bin;%MINGW_DIR%\bin;%WIXSHARP_DIR%;%APPVEYOR_BUILD_FOLDER%\capnproto
 - rustc -V
 - cargo -V
 - cargo test
