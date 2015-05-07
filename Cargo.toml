@@ -12,10 +12,17 @@ name = "octo_cl"
 test = false
 
 [[bin]]
+name = "octo_coordinator"
+test = false
+
+[[bin]]
 name = "xgconsole"
 test = false
 
 [dependencies.daemon]
+version = "*"
+
+[dependencies.iron]
 version = "*"
 
 [dependencies.lz4]
