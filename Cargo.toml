@@ -19,26 +19,14 @@ test = false
 name = "xgconsole"
 test = false
 
-[dependencies.daemon]
-version = "*"
-
-[dependencies.iron]
-version = "*"
-
-[dependencies.lz4]
-version = "*"
-
-[dependencies.libc]
-version = "*"
-
-[dependencies.xml-rs]
-version = "*"
-
-[dependencies.uuid]
-version = "*"
-
-[dependencies.tempdir]
-version = "*"
+[dependencies]
+daemon = "*"
+iron = "*"
+lz4 = "*"
+libc = "*"
+xml-rs = "*"
+uuid = "*"
+tempdir = "*"
 
 [build-dependencies.capnpc]
 git = "https://github.com/dwrensha/capnpc-rust.git"
