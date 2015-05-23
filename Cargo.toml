@@ -1,7 +1,7 @@
 [package]
 name = "octobuild"
 build = "src/build.rs"
-version = "0.0.10"
+version = "0.0.12"
 authors = [ "Artem V. Navrotskiy <bozaro@users.noreply.github.com>" ]
 
 [profile.bench]
@@ -22,8 +22,10 @@ test = false
 [dependencies]
 daemon = "*"
 iron = "*"
+filetime = "*"
 lz4 = "*"
 libc = "*"
+petgraph = "*"
 xml-rs = "*"
 uuid = "*"
 tempdir = "*"

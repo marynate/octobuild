@@ -1,9 +1,10 @@
 extern crate lz4;
+extern crate filetime;
 
 use std::env;
 use std::fmt::{Display, Formatter};
 use std::fs;
-use std::fs::{File, PathExt, OpenOptions};
+use std::fs::{File, OpenOptions};
 use std::io::{Error, ErrorKind, Read, Write, Seek, SeekFrom};
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
@@ -11,10 +12,13 @@ use std::collections::hash_map::Entry;
 use std::hash::{Hasher, SipHasher};
 use std::path::{Path, PathBuf};
 
+use self::filetime::FileTime;
+
 use super::compiler::OutputInfo;
 use super::utils::hash_write_stream;
 use super::utils::DEFAULT_BUF_SIZE;
 use super::io::binary::*;
+use super::version;
 
 const HEADER: &'static [u8] = b"OBCF\x00\x02";
 const FOOTER: &'static [u8] = b"END\x00";
@@ -57,7 +61,7 @@ impl ::std::error::Error for CacheError {
 struct FileHash {
 	hash: String,
 	size: u64,
-	modified: u64,
+	modified: FileTime,
 }
 
 #[derive(Clone)]
@@ -69,7 +73,7 @@ pub struct Cache {
 struct CacheFile {
 	path: PathBuf,
 	size: u64,
-	accessed: u64,
+	accessed: FileTime,
 }
 
 impl Cache {
@@ -99,20 +103,7 @@ impl Cache {
 	}
 
 	pub fn cleanup(&self, max_cache_size: u64) -> Result<(), Error> {
-		let mut files: Vec<CacheFile> = Vec::new();
-		for item in try! (fs::walk_dir(&self.cache_dir)) {
-			let path = try! (item).path();
-			if path.to_str().map_or(false, |v| v.ends_with(SUFFIX)) {
-				let attr = try! (fs::metadata(&path));
-				if attr.is_file() {
-					files.push(CacheFile {
-						path: path,
-						size: attr.len(),
-						accessed: attr.modified(),
-					});
-				}
-			}
-		}
+		let mut files = try! (find_cache_files(&self.cache_dir, Vec::new()));
 		files.sort_by(|a, b| b.accessed.cmp(&a.accessed));
 		
 		let mut cache_size: u64 = 0;
@@ -130,7 +121,7 @@ impl Cache {
 		let hash: &mut Hasher = &mut sip_hash;
 		// str
 		hash.write(params.as_bytes());
-		hash.write_u8(0);
+		hash.write(&[0]);
 		// inputs
 		for input in inputs.iter() {
 			let file_hash = try! (self.get_file_hash(input));
@@ -159,7 +150,7 @@ impl Cache {
 				match *hash_entry {
 					Some(ref value) => {
 						let stat = try! (fs::metadata(path));
-						if value.size == stat.len() && value.modified == stat.modified() {
+						if value.size == stat.len() && value.modified == FileTime::from_last_modification_time(&stat) {
 							return Ok(value.hash.clone());
 						}
 					}
@@ -171,7 +162,7 @@ impl Cache {
 				*hash_entry = Some(FileHash {
 					hash: hash.clone(),
 					size: stat.len(),
-					modified: stat.modified(),
+					modified: FileTime::from_last_modification_time(&stat),
 				});
 				Ok(hash)
 			}
@@ -179,6 +170,25 @@ impl Cache {
 		};
 		result
 	}
+}
+
+fn find_cache_files(dir: &Path, mut files: Vec<CacheFile>) -> Result<Vec<CacheFile>, Error> {
+	for entry in try!(fs::read_dir(dir)) {
+		let entry = try!(entry);
+		let path = entry.path();
+		let stat = try! (fs::metadata(&path));
+		if stat.is_dir() {
+			let r = find_cache_files(&path, files);
+			files = try! (r);
+		} else {
+			files.push(CacheFile {
+				path: path,
+				size: stat.len(),
+				accessed: FileTime::from_last_modification_time(&stat),
+			});
+		}
+	}
+	Ok(files)
 }
 
 fn generate_file_hash(path: &Path) -> Result<String, Error> {
@@ -196,26 +206,59 @@ fn write_cache(path: &Path, paths: &Vec<PathBuf>, output: &OutputInfo) -> Result
 		Some(parent) => try! (fs::create_dir_all(&parent)),
 		None => ()
 	}
-	let mut stream = try! (lz4::Encoder::new(try! (File::create(path)), 1));
-	try! (stream.write_all(HEADER));
-	try! (write_usize(&mut stream, paths.len()));
-	let mut buf: [u8; DEFAULT_BUF_SIZE] = [0; DEFAULT_BUF_SIZE];
-	for path in paths.iter() {
-		let mut file = try! (File::open(path));
-		loop {
-			let size = try! (file.read(&mut buf));
-			if size <= 0 {
-				break;
-			}
-			try! (write_usize(&mut stream, size));
-			try! (stream.write_all(&buf[0..size]));
+
+	fn write_cache_compressed<W: Write>(write: W, paths: &Vec<PathBuf>, output: &OutputInfo) -> Result<(), Error> {
+		let mut stream = try! (lz4::EncoderBuilder::new().level(1).build(write));
+		try! (write_cache_inner(&mut stream, paths, output));
+		match stream.finish() {
+			(_, result) => result
 		}
-		try! (write_usize(&mut stream, 0));
 	}
-	try! (write_output(&mut stream, output));
-	try! (stream.write_all(FOOTER));
-	match stream.finish() {
-		(_, result) => result
+	
+	fn write_cache_inner(stream: &mut Write, paths: &Vec<PathBuf>, output: &OutputInfo) -> Result<(), Error> {
+		try! (stream.write_all(HEADER));
+		try! (write_usize(stream, paths.len()));
+		let mut buf: [u8; DEFAULT_BUF_SIZE] = [0; DEFAULT_BUF_SIZE];
+		for path in paths.iter() {
+			let mut file = try! (File::open(path));
+			loop {
+				let size = try! (file.read(&mut buf));
+				if size <= 0 {
+					break;
+				}
+				try! (write_usize(stream, size));
+				try! (stream.write_all(&buf[0..size]));
+			}
+			try! (write_usize(stream, 0));
+		}
+		try! (write_output(stream, output));
+		try! (stream.write_all(FOOTER));
+		Ok(())
+	}
+
+	match write_cache_compressed(try! (File::create(path)), paths, output) {
+		Err(e) => {
+			let raw_path = path.with_extension("blk");
+			let mut stream = BlockWrite(try! (File::create(&raw_path)));
+			let _ = stream.write(&version::full_version().into_bytes());
+			let _ = write_cache_inner(&mut stream, paths, output);
+			println!("COMPRESSION FAILED. PLEASE SEND FILE TO DEVELOPER: {:?}", raw_path);
+			return Err(e);
+		}
+		Ok(v) => Ok(v),
+	}
+}
+
+struct BlockWrite<W: Write> (W);
+
+impl<W: Write> Write for BlockWrite<W> {
+	fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
+		try! (write_usize(&mut self.0, buf.len()));
+		self.0.write(buf)
+	}
+
+	fn flush(&mut self) -> Result<(), Error> {
+		self.0.flush()
 	}
 }
 
