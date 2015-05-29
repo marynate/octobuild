@@ -8,7 +8,7 @@ use super::super::utils::hash_text;
 use super::super::io::tempfile::TempFile;
 
 use std::fs::File;
-use std::io::{Error, BufReader, Cursor, Read, Write};
+use std::io::{Error, Cursor, Read, Write};
 use std::hash::{SipHasher, Hasher};
 use std::path::{Path, PathBuf};
 use std::process::Output;
@@ -74,20 +74,19 @@ impl Compiler for VsCompiler {
 		let output = try! (command.output());
 		if output.status.success() {
 			match File::open(temp_file.path()) {
-				Ok(stream) => {
-					let (mut output, sources): (Box<Read>, Vec<PathBuf>) = if task.input_precompiled.is_some() || task.output_precompiled.is_some() {
+				Ok(mut stream) => {
+					let mut output: Box<Read> = if task.input_precompiled.is_some() || task.output_precompiled.is_some() {
 						let mut buffer: Vec<u8> = Vec::new();
-						let sources = try! (postprocess::filter_preprocessed(&task.command.current_dir, &mut BufReader::new(stream), &mut buffer, &task.marker_precompiled, task.output_precompiled.is_some()));
-						(Box::new(Cursor::new(buffer)), sources)
+						try! (postprocess::filter_preprocessed(&mut stream, &mut buffer, &task.marker_precompiled, task.output_precompiled.is_some()));
+						Box::new(Cursor::new(buffer))
 					} else {
-						(Box::new(stream), Vec::new())
+						Box::new(stream)
 					};
 					let mut content = Vec::new();
 					try! (output.read_to_end(&mut content));
 					hash.write(&content);
 					Ok(PreprocessResult::Success(PreprocessedSource {
 						hash: format!("{:016x}", hash.finish()),
-						sources: sources,
 						content: content,
 					}))
 				}
@@ -148,7 +147,7 @@ impl Compiler for VsCompiler {
 		}
 	
 		let hash_params = hash_text(&preprocessed.content) + &wincmd::join(&args);
-		self.cache.run_cached(&hash_params, &inputs, &outputs, || -> Result<OutputInfo, Error> {
+		self.cache.run_file_cached(&hash_params, &inputs, &outputs, || -> Result<OutputInfo, Error> {
 			// Input file path.
 			let input_temp = TempFile::new_in(&self.temp_dir, ".i");
 			try! (try! (File::create(input_temp.path())).write_all(&preprocessed.content));
@@ -168,7 +167,7 @@ impl Compiler for VsCompiler {
 				&None => {}
 			}		
 			command.output().map(|o| OutputInfo::new(o))
-		})
+		}, || true)
 	}
 }
 

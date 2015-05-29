@@ -1,3 +1,7 @@
+#![feature(convert)]
+#![feature(collections)]
+#![feature(test)]
+
 include!(concat!(env!("OUT_DIR"), "/version.rs"));
 
 pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
@@ -11,6 +15,9 @@ pub mod version;
 pub mod io {
 	pub mod tempfile;
 	pub mod binary;
+	pub mod filecache;
+	pub mod hashwriter;
+	pub mod memcache;
 }
 pub mod xg {
 	pub mod parser;

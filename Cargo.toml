@@ -1,7 +1,7 @@
 [package]
 name = "octobuild"
 build = "src/build.rs"
-version = "0.0.12"
+version = "0.0.13"
 authors = [ "Artem V. Navrotskiy <bozaro@users.noreply.github.com>" ]
 
 [profile.bench]
@@ -29,6 +29,14 @@ petgraph = "*"
 xml-rs = "*"
 uuid = "*"
 tempdir = "*"
+
+[target.i686-pc-windows-gnu.dependencies]
+winapi = "*"
+kernel32-sys = "*"
+
+[target.x86_64-pc-windows-gnu.dependencies]
+winapi = "*"
+kernel32-sys = "*"
 
 [build-dependencies.capnpc]
 git = "https://github.com/dwrensha/capnpc-rust.git"
