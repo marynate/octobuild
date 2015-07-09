@@ -1,7 +1,5 @@
 language: rust
 #sudo: false
-rust:
-  - nightly
 #addons:
 #  apt_packages:
 #  - capnproto

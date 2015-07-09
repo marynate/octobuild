@@ -34,7 +34,7 @@ pub const REVISION: &'static str = "{revision}";
 }
 
 fn main() {
-    capnpc::compile(&Path::new("."), &[Path::new("api.capnp")]).unwrap();
+    //capnpc::compile(&Path::new("."), &[Path::new("api.capnp")]).unwrap();
     save_platform().unwrap();
     save_version().unwrap();
 }
